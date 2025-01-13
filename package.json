@@ -1,0 +1,16 @@
+{
+  "name": "terraform-plan-calculator",
+  "version": "1.0.0",
+  "description": "Github Action that compute the differences between two branchs and compute module target plan",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0"
+  }
+}

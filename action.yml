@@ -1,0 +1,22 @@
+name: "Terraform Plan Calculator Action"
+description: "Github Action that compute the differences between two branchs and compute module target plan"
+
+inputs:
+  source_branch:
+    description: "The source branch to compare"
+    required: false
+    default: ${{ github.head_ref }}
+  target_branch:
+    description: "The target branch to compare"
+    required: false
+    default: main
+  directory:
+    description: "The terraform state directory path to use"
+    required: false
+    default: "/"
+outputs:
+  targets:
+    description: "Computed target list"
+runs:
+  using: "node20"
+  main: "index.js"
