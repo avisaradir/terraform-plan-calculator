@@ -15,8 +15,8 @@ inputs:
     required: false
     default: "/"
 outputs:
-  targets:
-    description: "Computed target list"
+  changes:
+    description: "Computed changed resources list"
 runs:
   using: "node20"
   main: "index.js"

@@ -1,155 +1,7 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
 const { execSync } = require('child_process');
-
-class ResourceAnalyzer {
-    constructor(sourceBranch, targetBranch, directory) {
-        this.sourceBranch = sourceBranch;
-        this.targetBranch = targetBranch;
-        this.directory = directory;
-    }
-
-    getChangedFiles() {
-        try {
-            const command = `git diff --name-only ${this.targetBranch}..${this.sourceBranch} -- ${this.directory}`;
-            const result = execSync(command, { encoding: 'utf-8' });
-            return result.trim().split('\n').filter(file => file);
-        } catch (error) {
-            core.warning(`Error getting changed files: ${error.message}`);
-            return [];
-        }
-    }
-
-    getFileContent(filePath, branch) {
-        try {
-            const command = `git show ${branch}:${filePath}`;
-            let content = execSync(command, { encoding: 'utf-8' });
-            return content;
-        } catch (error) {
-            // If the file doesn't exist in the branch, return empty string
-            core.warning(`Error reading file ${filePath} from branch ${branch}: ${error.message}`);
-            return '';
-        }
-    }
-
-    findResources(content) {
-        const resources = [];
-        if (!content) return resources;
-
-        const lines = content.split('\n');
-
-        lines.forEach((line, index) => {
-            // Match any resource definition
-            const match = line.match(/resource\s+"([^"]+)"\s+"([^"]+)"/);
-            if (match) {
-                resources.push({
-                    type: match[1],
-                    name: match[2],
-                    line: index + 1
-                });
-            }
-        });
-
-        return resources;
-    }
-
-    async analyze() {
-        const changedFiles = this.getChangedFiles();
-        console.log('Changed files:', changedFiles);
-
-        let changes = {
-            added: [],
-            removed: [],
-            modified: []
-        };
-
-        for (const file of changedFiles) {
-            const sourceContent = this.getFileContent(file, this.sourceBranch);
-            const targetContent = this.getFileContent(file, this.targetBranch);
-
-            const sourceResources = this.findResources(sourceContent);
-            const targetResources = this.findResources(targetContent);
-
-            // If the file is new (doesn't exist in target branch)
-            if (!targetContent) {
-                // All resources in the source are considered new
-                sourceResources.forEach(resource => {
-                    changes.added.push({
-                        type: resource.type,
-                        name: resource.name,
-                        file: file
-                    });
-                });
-                continue;
-            }
-
-            // If the file is deleted (doesn't exist in source branch)
-            if (!sourceContent) {
-                // All resources in the target are considered removed
-                targetResources.forEach(resource => {
-                    changes.removed.push({
-                        type: resource.type,
-                        name: resource.name,
-                        file: file
-                    });
-                });
-                continue;
-            }
-
-            // For existing files, compare resources
-            sourceResources.forEach(resource => {
-                const existsInTarget = targetResources.some(
-                    r => r.type === resource.type && r.name === resource.name
-                );
-                if (!existsInTarget) {
-                    changes.added.push({
-                        type: resource.type,
-                        name: resource.name,
-                        file: file
-                    });
-                }
-            });
-
-            targetResources.forEach(resource => {
-                const existsInSource = sourceResources.some(
-                    r => r.type === resource.type && r.name === resource.name
-                );
-                if (!existsInSource) {
-                    changes.removed.push({
-                        type: resource.type,
-                        name: resource.name,
-                        file: file
-                    });
-                }
-            });
-
-            // Check for modifications in existing resources
-            sourceResources.forEach(resource => {
-                const existsInTarget = targetResources.some(
-                    r => r.type === resource.type && r.name === resource.name
-                );
-                if (existsInTarget) {
-                    try {
-                        const command = `git diff ${this.targetBranch}..${this.sourceBranch} -- ${file}`;
-                        const diff = execSync(command, { encoding: 'utf-8' });
-                        const resourceRegex = new RegExp(`resource\\s+"${resource.type}"\\s+"${resource.name}"`);
-                        if (diff.match(resourceRegex)) {
-                            changes.modified.push({
-                                type: resource.type,
-                                name: resource.name,
-                                file: file
-                            });
-                        }
-                    } catch (error) {
-                        core.warning(`Error checking modifications for ${file}: ${error.message}`);
-                    }
-                }
-            });
-        }
-
-        return changes;
-    }
-}
+const fs = require('fs');
 
 async function run() {
     try {
@@ -162,37 +14,133 @@ async function run() {
         console.log(`Directory: ${directory}`);
 
         const analyzer = new ResourceAnalyzer(sourceBranch, targetBranch, directory);
-        const changes = await analyzer.analyze();
+        const changes = analyzer.analyze();
 
-        // Log the results
-        console.log('\nResource Changes Analysis:');
-        console.log('------------------------');
+        // Save changes to a JSON file
+        fs.writeFileSync('changes.json', JSON.stringify({ changes }, null, 2));
 
-        if (changes.added.length > 0) {
-            console.log('\nAdded Resources:');
-            changes.added.forEach(r => {
-                console.log(`- ${r.type}/${r.name} in ${r.file}`);
-            });
-        }
-
-        if (changes.removed.length > 0) {
-            console.log('\nRemoved Resources:');
-            changes.removed.forEach(r => {
-                console.log(`- ${r.type}/${r.name} in ${r.file}`);
-            });
-        }
-
-        if (changes.modified.length > 0) {
-            console.log('\nModified Resources:');
-            changes.modified.forEach(r => {
-                console.log(`- ${r.type}/${r.name} in ${r.file}`);
-            });
-        }
-
-        // Set outputs
+        // Also set as action output
         core.setOutput('changes', JSON.stringify(changes));
+
+        // Log results
+        console.log('\nChange Summary:');
+        changes.forEach(change => {
+            console.log(`- ${change.action.toUpperCase()}: ${change.type} "${change.name}" in ${change.path}`);
+        });
     } catch (error) {
         core.setFailed(error.message);
+    }
+}
+
+class ResourceAnalyzer {
+    constructor(sourceBranch, targetBranch, directory) {
+        this.sourceBranch = sourceBranch;
+        this.targetBranch = targetBranch;
+        this.directory = directory || '.';
+    }
+
+    getChangedFiles() {
+        try {
+            // Use git status to detect new files
+            let command = `git ls-files --others --exclude-standard ${this.directory}`;
+            const untracked = execSync(command, { encoding: 'utf-8' })
+                .trim()
+                .split('\n')
+                .filter(file => file);
+
+            // Get tracked files that changed
+            command = `git diff --name-only ${this.targetBranch}..${this.sourceBranch} ${this.directory}`;
+            const tracked = execSync(command, { encoding: 'utf-8' })
+                .trim()
+                .split('\n')
+                .filter(file => file);
+
+            // Combine both lists and remove duplicates
+            const allChangedFiles = [...new Set([...untracked, ...tracked])];
+            console.log('All changed files:', allChangedFiles);
+
+            return allChangedFiles;
+        } catch (error) {
+            core.warning(`Error getting changed files: ${error.message}`);
+            return [];
+        }
+    }
+
+    readFileContent(filePath) {
+        try {
+            return fs.readFileSync(filePath, 'utf-8');
+        } catch (error) {
+            core.warning(`Error reading file ${filePath}: ${error.message}`);
+            return '';
+        }
+    }
+
+    findModulesAndResources(content, filePath) {
+        const results = {
+            resources: [],
+            modules: []
+        };
+
+        if (!content) return results;
+
+        const lines = content.split('\n');
+        let currentBlock = null;
+        let bracketCount = 0;
+
+        lines.forEach((line, index) => {
+            const resourceMatch = line.match(/resource\s+"([^"]+)"\s+"([^"]+)"/);
+            const moduleMatch = line.match(/module\s+"([^"]+)"/);
+
+            if (resourceMatch && !currentBlock) {
+                results.resources.push({
+                    type: resourceMatch[1],
+                    name: resourceMatch[2],
+                    file: filePath
+                });
+            } else if (moduleMatch && !currentBlock) {
+                results.modules.push({
+                    name: moduleMatch[1],
+                    file: filePath
+                });
+            }
+
+            if (line.includes('{')) bracketCount++;
+            if (line.includes('}')) bracketCount--;
+        });
+
+        return results;
+    }
+
+    analyze() {
+        const changedFiles = this.getChangedFiles();
+        const changes = [];
+
+        for (const file of changedFiles) {
+            const content = this.readFileContent(file);
+            const items = this.findModulesAndResources(content, file);
+
+            // Add all resources as created
+            items.resources.forEach(resource => {
+                changes.push({
+                    name: `${resource.type}/${resource.name}`,
+                    type: 'resource',
+                    action: 'create',
+                    path: file
+                });
+            });
+
+            // Add all modules as created
+            items.modules.forEach(module => {
+                changes.push({
+                    name: module.name,
+                    type: 'module',
+                    action: 'create',
+                    path: file
+                });
+            });
+        }
+
+        return changes;
     }
 }
 
