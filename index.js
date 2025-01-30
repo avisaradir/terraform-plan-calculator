@@ -49,7 +49,7 @@ class ResourceAnalyzer {
                 .filter(file => file);
 
             // Get tracked files that changed
-            command = `git diff --name-only ${this.targetBranch}..${this.sourceBranch} ${this.directory}`;
+            command = `git diff --name-only ${this.targetBranch}..${this.sourceBranch} -- ${this.directory}`;
             const tracked = execSync(command, { encoding: 'utf-8' })
                 .trim()
                 .split('\n')
