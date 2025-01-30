@@ -13,6 +13,19 @@ async function run() {
         console.log(`Target Branch: ${targetBranch}`);
         console.log(`Directory: ${directory}`);
 
+
+        // Fetch all branches first
+        await exec.exec('git', ['fetch', '--no-tags', '--prune', '--unshallow', '--progress', 'origin']);
+
+        // Make sure we have both branches
+        try {
+            await exec.exec('git', ['rev-parse', '--verify', sourceBranch]);
+            await exec.exec('git', ['rev-parse', '--verify', targetBranch]);
+        } catch (error) {
+            core.setFailed(`One or both branches not found: ${error.message}`);
+            return;
+        }
+
         const analyzer = new ResourceAnalyzer(sourceBranch, targetBranch, directory);
         const changes = analyzer.analyze();
 
