@@ -13,17 +13,20 @@ async function run() {
         console.log(`Target Branch: ${targetBranch}`);
         console.log(`Directory: ${directory}`);
 
-
-        // Fetch all branches first
-        await exec.exec('git', ['fetch', '--no-tags', '--prune', '--unshallow', '--progress', 'origin']);
-
-        // Make sure we have both branches
+        // Fetch all branches
         try {
-            await exec.exec('git', ['rev-parse', '--verify', sourceBranch]);
-            await exec.exec('git', ['rev-parse', '--verify', targetBranch]);
+            execSync('git fetch --no-tags --prune --progress origin', { encoding: 'utf8' });
+        } catch (error) {
+            console.log('Warning: Fetch error (might be ok if repository is already complete):', error.message);
+        }
+
+        // Verify branches exist
+        try {
+            execSync(`git rev-parse --verify ${sourceBranch}`, { encoding: 'utf8' });
+            execSync(`git rev-parse --verify ${targetBranch}`, { encoding: 'utf8' });
         } catch (error) {
             core.setFailed(`One or both branches not found: ${error.message}`);
-            return;
+            process.exit(1);
         }
 
         const analyzer = new ResourceAnalyzer(sourceBranch, targetBranch, directory);
